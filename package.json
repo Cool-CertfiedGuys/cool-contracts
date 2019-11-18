@@ -1,0 +1,16 @@
+{
+  "name": "amazing-contracts",
+  "version": "1.0.0",
+  "main": "index.js",
+  "author": "Marcello Bardus",
+  "license": "MIT",
+  "private": false,
+  "dependencies": {
+    "@openzeppelin/contracts-ethereum-package": "^2.4.0",
+    "@openzeppelin/gsn-helpers": "^0.2.1",
+    "@openzeppelin/network": "^0.2.10",
+    "@openzeppelin/upgrades": "^2.6.0",
+    "openzeppelin-solidity": "^2.4.0",
+    "truffle-hdwallet-provider": "^1.0.17"
+  }
+}
