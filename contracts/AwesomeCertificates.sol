@@ -1,14 +1,10 @@
 pragma solidity 0.5.11;
 
-import "../node_modules/@openzeppelin/contracts-ethereum-package/contracts/GSN/GSNRecipient.sol";
 import "../node_modules/openzeppelin-solidity/contracts/token/ERC20/IERC20.sol";
+import './AwesomeCertificateERC20Bridge.sol';
 
-contract AwesomeCertificates is GSNRecipient {
-    address owner;
-    IERC20 public awesomeCertificatesGasTokenContractInstance;
 
-    // Issuer => certficate entropy / family => owner => quantity
-    mapping(address => mapping(bytes32 => mapping(address => uint))) public certificates;
+contract AwesomeCertificates {
 
     // Events
 
@@ -32,25 +28,66 @@ contract AwesomeCertificates is GSNRecipient {
         uint _quantity
     );
 
+    event CertificateFamilyBridgedToErc20(
+        address indexed _issuer,
+        bytes32 indexed _family,
+        address _bridgeContractAddress
+    );
+
+    event CertfiticatesBurned(
+        address indexed _issuer,
+        bytes32 indexed _family,
+        uint _quantity,
+        address _whos,
+        address _burner
+    );
+
+    // Structs
+
+    struct CertificateFamily {
+        address erc20BridgeAddress;
+        mapping(address => uint) balances;
+
+        uint holdersCount;
+        mapping(uint => address) holders;
+        mapping(address => uint) holderId;
+    }
+
+    // Variables
+
+    address public owner;
+    IERC20 public awesomeCertificatesGasTokenContractInstance;
+
+    // Issuer => certficate entropy / family => owner => quantity
+    mapping(address => mapping(bytes32 => CertificateFamily)) public certificates;
+
     // Constructor
 
     constructor(address _awesomeCertificatesGasTokenContractAddress) public {
-        owner = _msgSender();
+        owner = msg.sender;
         awesomeCertificatesGasTokenContractInstance = IERC20(_awesomeCertificatesGasTokenContractAddress);
     }
 
     // Modifiers
 
-    modifier doesCertificateFamilyExist(address _issuer ,bytes32 _familyEntropy) {
+    modifier doesCertificateFamilyExist(address _issuer, bytes32 _familyEntropy) {
         require(
-            certificates[_issuer][_familyEntropy][address(0)] > 0,
+            certificates[_issuer][_familyEntropy].balances[address(0)] > 0,
+            "Certificates family with the given entropy do not exist"
+            );
+        _;
+    }
+
+     modifier doesNotCertificateFamilyExist(address _issuer, bytes32 _familyEntropy) {
+        require(
+            certificates[_issuer][_familyEntropy].balances[address(0)] == 0,
             "Certificates family with the given entropy already exist"
             );
         _;
     }
 
     modifier isOwner() {
-        require(_msgSender() == owner, "This method can be called only by the contract owner");
+        require(msg.sender == owner, "This method can be called only by the contract owner");
         _;
     }
 
@@ -61,9 +98,19 @@ contract AwesomeCertificates is GSNRecipient {
         uint _transferedQuantity
     ) {
         require(
-            certificates[_certificateIssuer][_family][_sender] >= _transferedQuantity,
+            certificates[_certificateIssuer][_family].balances[_sender] >= _transferedQuantity,
             "You can't transfer more certificates than you have"
         );
+        _;
+    }
+
+    modifier isNotCertificateFamilyErc20Bridged(address _certficateIssuer, bytes32 _family) {
+        require(certificates[_certficateIssuer][_family].erc20BridgeAddress == address(0), "Certifictate is already bridged");
+        _;
+    }
+
+    modifier transferRecipientNotZeroAddress(address _recipient) {
+        require(_recipient != address(0), "Certificates cannot be transfered to the 0x0 address");
         _;
     }
     // State changing methods
@@ -78,47 +125,145 @@ contract AwesomeCertificates is GSNRecipient {
     ) internal
     doesCertificateFamilyExist(_certificateIssuer, _family)
     isQuantitySufficientToTransfer(_certificateIssuer, _family, _from, _quantity)
+    transferRecipientNotZeroAddress(_to)
     {
-        certificates[_certificateIssuer][_family][_from] -= _quantity;
-        certificates[_certificateIssuer][_family][_to] += _quantity;
+        if(certificates[_certificateIssuer][_family].balances[_from] == _quantity) {
+            uint _holderId = certificates[_certificateIssuer][_family].holderId[_from];
+            uint _holdersCount = certificates[_certificateIssuer][_family].holdersCount;
+            certificates[_certificateIssuer][_family].holders[_holderId] = certificates[_certificateIssuer][_family].holders[_holdersCount - 1];
+            delete certificates[_certificateIssuer][_family].holders[_holdersCount];
+        }
+
+        if(certificates[_certificateIssuer][_family].balances[_to] == 0) {
+           certificates[_certificateIssuer][_family].holderId[_to] = certificates[_certificateIssuer][_family].holdersCount;
+           certificates[_certificateIssuer][_family].holders[certificates[_certificateIssuer][_family].holdersCount] = _to;
+           certificates[_certificateIssuer][_family].holdersCount++;
+        }
+
+        certificates[_certificateIssuer][_family].balances[_from] -= _quantity;
+        certificates[_certificateIssuer][_family].balances[_to] += _quantity;
         emit CertficateTransfer(_certificateIssuer, _family, _from, _to, _quantity);
+    }
+
+    function _burn(
+        address _certificateIssuer,
+        bytes32 _family,
+        address _whos,
+        uint _quantity
+    ) internal
+    doesCertificateFamilyExist(_certificateIssuer, _family)
+    isQuantitySufficientToTransfer(_certificateIssuer, _family, _whos, _quantity)
+    {
+        if(certificates[_certificateIssuer][_family].balances[_whos] == _quantity) {
+            uint _holderId = certificates[_certificateIssuer][_family].holderId[_whos];
+            uint _holdersCount = certificates[_certificateIssuer][_family].holdersCount;
+            certificates[_certificateIssuer][_family].holders[_holderId] = certificates[_certificateIssuer][_family].holders[_holdersCount - 1];
+            delete certificates[_certificateIssuer][_family].holders[_holdersCount];
+        }
+        certificates[_certificateIssuer][_family].balances[_whos] -= _quantity;
+        emit CertfiticatesBurned(_certificateIssuer, _family, _quantity, _whos, msg.sender);
     }
 
     // Issuers methods
 
-    function registerCertificatesFamily(bytes32 _familyEntropy) public
-    doesCertificateFamilyExist(_msgSender(), _familyEntropy)
+    function registerCertificateFamily(bytes32 _familyEntropy) public
+    doesNotCertificateFamilyExist(msg.sender, _familyEntropy)
     {
-        certificates[_msgSender()][_familyEntropy][address(0)]++;
-        emit NewCertficateFamilyRegistered(_msgSender(), _familyEntropy);
+        certificates[msg.sender][_familyEntropy].balances[address(0)]++;
+        emit NewCertficateFamilyRegistered(msg.sender, _familyEntropy);
     }
 
     function assignCertificate(bytes32 _family, address _to, uint _quantity) public
-    doesCertificateFamilyExist(_msgSender(), _family)
+    doesCertificateFamilyExist(msg.sender, _family)
     {
-        certificates[_msgSender()][_family][_to] += _quantity;
-        emit CertificateIssued(_msgSender(), _family, _to, _quantity);
+        if(certificates[msg.sender][_family].balances[_to] == 0) {
+           certificates[msg.sender][_family].holderId[_to] = certificates[msg.sender][_family].holdersCount;
+           certificates[msg.sender][_family].holders[certificates[msg.sender][_family].holdersCount] = _to;
+           certificates[msg.sender][_family].holdersCount++;
+        }
+        certificates[msg.sender][_family].balances[_to] += _quantity;
+        emit CertificateIssued(msg.sender, _family, _to, _quantity);
     }
+
+    function bridgeCertficateFamily(
+        bytes32 _family,
+        string memory _bridgeTokenName,
+        string memory _bridgeTokenSymbol
+    ) public
+    doesCertificateFamilyExist(msg.sender, _family)
+    isNotCertificateFamilyErc20Bridged(msg.sender, _family)
+    {
+        AwesomeCertificateERC20Bridge _bridge = new AwesomeCertificateERC20Bridge(_bridgeTokenName, _bridgeTokenSymbol);
+        address _bridgeAddress = address(_bridge);
+        certificates[msg.sender][_family].erc20BridgeAddress = _bridgeAddress;
+        emit CertificateFamilyBridgedToErc20(msg.sender, _family, _bridgeAddress);
+    }
+
+    // TODO close bridge ???
 
     // Certficates owners methods
 
-    function allowSpending(
-        address _certificateIssuer,
+    function transfer(address _certificateIssuer, bytes32 _family, address _to, uint _quantity) public {
+        _transfer(_certificateIssuer, _family, msg.sender, _to, _quantity);
+    }
+
+    function burnAsOwner(address _certificateIssuer, bytes32 _family, uint _quantity) public {
+        _burn(_certificateIssuer, _family, msg.sender, _quantity);
+    }
+
+    function burnAsCertificateIssuer(
         bytes32 _family,
         uint _quantity,
-        address _whom
-    ) public
-    doesCertificateFamilyExist(_certificateIssuer, _family)
-    isQuantitySufficientToTransfer(_certificateIssuer, _family, _msgSender(), _quantity)
-    {
-
+        address _whos
+    ) public {
+        _burn(msg.sender, _family, _whos, _quantity);
     }
 
-    function transfer(address _certificateIssuer, bytes32 _family, address _to, uint _quantity) public
-    doesCertificateFamilyExist(_certificateIssuer, _family)
-    isQuantitySufficientToTransfer(_certificateIssuer, _family, _msgSender(), _quantity)
-    {
-        _transfer(_certificateIssuer, _family, _msgSender(), _to, _quantity);
+    // Getters
+
+    function getCertificatesBalance(
+        address _certificateIssuer,
+        bytes32 _family,
+        address _whosBalance
+    ) public doesCertificateFamilyExist(_certificateIssuer, _family) view returns(uint) {
+        return certificates[_certificateIssuer][_family].balances[_whosBalance];
     }
 
+    function getCertificatesHoldersCount(
+        address _certificateIssuer,
+        bytes32 _family
+    ) public doesCertificateFamilyExist(_certificateIssuer, _family) view returns(uint) {
+        return certificates[_certificateIssuer][_family].holdersCount;
+    }
+
+    function getHolderAddressID(
+        address _certificateIssuer,
+        bytes32 _family,
+        address _holder
+    ) public doesCertificateFamilyExist(_certificateIssuer, _family) view returns(uint) {
+        return certificates[_certificateIssuer][_family].holderId[_holder];
+    }
+
+    function getHolderAddressByID(
+        address _certificateIssuer,
+        bytes32 _family,
+        uint _holderId
+    ) public doesCertificateFamilyExist(_certificateIssuer, _family) view returns(address) {
+        return certificates[_certificateIssuer][_family].holders[_holderId];
+    }
+
+    function isCertificateFamilyErc20Bridged(
+        address _certificateIssuer,
+        bytes32 _family
+    ) public doesCertificateFamilyExist(_certificateIssuer, _family) view returns(bool) {
+        return !(certificates[_certificateIssuer][_family].erc20BridgeAddress == address(0));
+    }
+
+    function getCertificateFamilyErc20BridgeAddress(
+        address _certificateIssuer,
+        bytes32 _family
+    ) public doesCertificateFamilyExist(_certificateIssuer, _family) view returns(address) {
+        require(certificates[_certificateIssuer][_family].erc20BridgeAddress != address(0), "Certficate family is not bridged");
+        return certificates[_certificateIssuer][_family].erc20BridgeAddress;
+    }
 }
