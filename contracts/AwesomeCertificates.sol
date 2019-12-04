@@ -123,10 +123,15 @@ contract AwesomeCertificates {
         address _to,
         uint _quantity
     ) internal
-    doesCertificateFamilyExist(_certificateIssuer, _family)
     isQuantitySufficientToTransfer(_certificateIssuer, _family, _from, _quantity)
-    transferRecipientNotZeroAddress(_to)
     {
+        require(_to != address(0), "Certificates cannot be transfered to the 0x0 address");
+
+        require(
+            certificates[_certificateIssuer][_family].balances[address(0)] > 0,
+            "Certificates family with the given entropy do not exist"
+        );
+
         if(certificates[_certificateIssuer][_family].balances[_from] == _quantity) {
             uint _holderId = certificates[_certificateIssuer][_family].holderId[_from];
             uint _holdersCount = certificates[_certificateIssuer][_family].holdersCount;

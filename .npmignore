@@ -1,0 +1,12 @@
+src/
+test/
+tsconfig.json
+tslint.json
+.prettierrc
+
+.secret
+.privateKey
+.contractAddress
+.infuraProjectID
+
+truffle-config.js
