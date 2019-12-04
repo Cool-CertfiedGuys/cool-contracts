@@ -1,3 +1,5 @@
 import * as ethers from "ethers";
 
-export class AwesomeCertificatesSdk {}
+export class AwesomeCertificatesSdk {
+    
+}

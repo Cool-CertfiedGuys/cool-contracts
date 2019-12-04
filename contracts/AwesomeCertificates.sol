@@ -1,6 +1,7 @@
 pragma solidity 0.5.11;
 
 import "../node_modules/openzeppelin-solidity/contracts/token/ERC20/IERC20.sol";
+import "../node_modules/openzeppelin-solidity/contracts/token/ERC20/ERC20Mintable.sol";
 import './AwesomeCertificateERC20Bridge.sol';
 
 
@@ -202,6 +203,14 @@ contract AwesomeCertificates {
         address _bridgeAddress = address(_bridge);
         certificates[msg.sender][_family].erc20BridgeAddress = _bridgeAddress;
         emit CertificateFamilyBridgedToErc20(msg.sender, _family, _bridgeAddress);
+    }
+
+    function stakeErc20Bridge(address _certificateIssuer, bytes32 _family) public
+    doesCertificateFamilyExist(msg.sender, _family)
+    {
+        require(isCertificateFamilyErc20Bridged(_certificateIssuer, _family), "Only bridged certificates can be staked");
+        ERC20Mintable bridgeInstance = ERC20Mintable(certificates[_certificateIssuer][_family].erc20BridgeAddress);
+        bridgeInstance.mint(msg.sender, certificates[_certificateIssuer][_family].balances[msg.sender]);
     }
 
     // TODO close bridge ???

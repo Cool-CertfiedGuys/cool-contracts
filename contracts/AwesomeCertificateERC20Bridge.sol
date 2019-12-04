@@ -22,10 +22,15 @@ contract AwesomeCertificateERC20Bridge  is ERC20, ERC20Detailed, ERC20Mintable, 
     ERC20Detailed(_name, _symbol, 0)
     public {
         owner = msg.sender;
-        _mint(msg.sender, 0);
+        addMinter(msg.sender);
     }
 
-    function close() public {
+    function burnAsIssuer(address _whom, uint _amount) external {
+        require(msg.sender == owner, "Restricted method");
+        _burn(_whom, _amount);
+    }
+
+    function close() external {
         require(msg.sender == owner, "Only the contract creator can close an ERC20 bridge");
         selfdestruct(msg.sender);
     }
