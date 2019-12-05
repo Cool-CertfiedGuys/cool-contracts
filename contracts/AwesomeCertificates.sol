@@ -49,6 +49,8 @@ contract AwesomeCertificates {
         address erc20BridgeAddress;
         mapping(address => uint) balances;
 
+        mapping(address => bool) tokensStaked;
+
         uint holdersCount;
         mapping(uint => address) holders;
         mapping(address => uint) holderId;
@@ -209,8 +211,10 @@ contract AwesomeCertificates {
     doesCertificateFamilyExist(msg.sender, _family)
     {
         require(isCertificateFamilyErc20Bridged(_certificateIssuer, _family), "Only bridged certificates can be staked");
+        require(!certificates[_certificateIssuer][_family].tokensStaked[msg.sender], "You already staked your tokens");
         ERC20Mintable bridgeInstance = ERC20Mintable(certificates[_certificateIssuer][_family].erc20BridgeAddress);
         bridgeInstance.mint(msg.sender, certificates[_certificateIssuer][_family].balances[msg.sender]);
+        certificates[_certificateIssuer][_family].tokensStaked[msg.sender] = true;
     }
 
     // TODO close bridge ???
